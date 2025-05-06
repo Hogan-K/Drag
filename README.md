@@ -2,7 +2,7 @@
 Implemented a draggable feature using vanilla JavaScript.
 
 ## CDN
-```
+```html
 <script src="https://cdn.jsdelivr.net/gh/Hogan-K/Drag@v1.0.0/dist/Drag.umd.js"></script>
 ```
 
