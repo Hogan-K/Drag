@@ -21,8 +21,8 @@ This function only handles basic drag operations.
 
 #### JavaScript (Script)
 ```html
-<script src="https://cdn.jsdelivr.net/gh/Hogan-K/Drag@v1.0.0/dist/Drag.umd.js"></script>
-<script>
+<script src="https://cdn.jsdelivr.net/gh/Hogan-K/Drag@v2.0.0/dist/Drag.umd.js"></script>
+<script type="module">
     Drag({ main_el: document.getElementById('test') })
 </script>
 ```
