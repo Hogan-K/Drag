@@ -4,60 +4,124 @@ params : {
   必要:
    main_el: 拖曳主體 - element
   選用:
-   area_el: 拖曳範圍 - element (default: null)
-   top_boundary: 拖曳範圍內自訂上限 - Number (default: 0)
-   bottom_boundary: 拖曳範圍內自訂下限 - Number (default: 0)
-   right_boundary: 拖曳範圍內自訂右限 - Number (default: 0)
-   left_boundary: 拖曳範圍內自訂左限 - Number (default: 0)
+   trigger_el: 觸發拖曳的元素 - element
+   top_boundary: 拖曳範圍(上) - Number (default: 0)
+   bottom_boundary: 拖曳範圍(下) - Number (default: window.innerHeight)
+   left_boundary: 拖曳範圍(左) - Number (default: 0)
+   right_boundary: 拖曳範圍(右) - Number (default: window.innerWidth)
 }
 
 description:
-  主體須自行設置 position 和初始定位點，該功能只處理拖曳賦予新定位點,
-  該功能使用 bottom、right 為設定定位點的值, 非 top、left, 如需修改功能請將邏輯顛倒
+  主體須自行設置 position 和初始定位點，該功能只處理拖曳賦予新定位點
 */
-export default function ({main_el, top_boundary = 0, bottom_boundary = 0, right_boundary = 0, left_boundary = 0, area_el = null}) {
+export default function (info) {
+    const trigger_el = info.trigger_el ?? info.main_el // 觸發拖曳的 element
+    const main_el = info.main_el // 拖曳的主體 element
+
+    main_el.style.willChange = 'transform'
+    main_el.style.touchAction = 'none'
+    main_el.style.userSelect = 'none'
+
+    let w = 0,
+        h = 0,
+        x = 0,
+        y = 0 // 儲存要移動的距離
+    let minX = 0,
+        minY = 0,
+        maxX = 0,
+        maxY = 0 // 可移動的最外圍
+    let lastClientX = 0,
+        lastClientY = 0 // 存儲游標的新位置
+    const origin_location = {clientX: 0, clientY: 0} // 儲存現在游標的位置
+    let dragging = false
+    let rafId = null
+    let pending = false // rAF 節流旗標
+    let transform_center_point = null // 移動的基準點
+
+    // 移動元素
+    const applyTransform = () => {
+        main_el.style.transform = `translate3d(${x}px, ${y}px, 0)`
+    }
+
+    // 檢查移動是否超過邊界
+    const clamp = () => {
+        if (x < minX) x = minX
+        if (y < minY) y = minY
+        if (x > maxX) x = maxX
+        if (y > maxY) y = maxY
+    }
+
     const onMove = (e) => {
-        const main_el_boundary = main_el.getBoundingClientRect()
-        const area_range_boundary = area_el ? area_el.getBoundingClientRect() : null
+        // 儲存最後一次指標位置；由 rAF 消化
+        lastClientX = e.clientX
+        lastClientY = e.clientY
 
-        let last_position_X = area_range_boundary ? area_range_boundary.right : window.innerWidth, // X 軸最大值
-            last_position_Y = area_range_boundary ? area_range_boundary.bottom : window.innerHeight, // Y 軸最大值
-            position_X = last_position_X - main_el_boundary.right, // 計算目前 X 軸的值
-            position_Y = last_position_Y - main_el_boundary.bottom, // 計算目前 Y 軸的值
-            // 拖曳範圍
-            area_range_left = area_range_boundary ? last_position_X - area_range_boundary.left - left_boundary : window.innerWidth,
-            area_range_top = area_range_boundary ? last_position_Y - area_range_boundary.top - top_boundary : window.innerHeight,
-            area_range_bottom = bottom_boundary,
-            area_range_right = right_boundary,
-            // 主體高寬
-            element_height = main_el_boundary.height,
-            element_width = main_el_boundary.width
+        if (!pending) {
+            pending = true
+            rafId = requestAnimationFrame(() => {
+                pending = false
 
-        // 清除 top、left 避免影響 right、bottom 定位
-        main_el.style.top = 'auto'
-        main_el.style.left = 'auto'
+                // 計算相對移動（與上次 move 事件的座標相比）
+                const dx = lastClientX - origin_location.clientX
+                const dy = lastClientY - origin_location.clientY
+                origin_location.clientX = lastClientX
+                origin_location.clientY = lastClientY
 
-        // 拖曳範圍
-        const boundary_Y =
-                (position_Y < area_range_top - element_height || e.movementY >= 0) &&
-                (position_Y > area_range_bottom || e.movementY <= 0),
-            boundary_X =
-                (position_X > area_range_right || e.movementX <= 0) && (position_X + element_width < area_range_left || e.movementX >= 0)
-
-        // 修改主體的定位點
-        if (boundary_Y) {
-            main_el.style.bottom = `${position_Y - e.movementY}px`
-        }
-        if (boundary_X) {
-            main_el.style.right = `${position_X - e.movementX}px`
+                x += dx
+                y += dy
+                clamp()
+                applyTransform()
+            })
         }
     }
-    const stopMove = () => {
+
+    const onDown = (e) => {
+        const rect = main_el.getBoundingClientRect()
+        w = rect.width
+        h = rect.height
+        x = rect.x
+        y = rect.y
+
+        // 首次需設定 transform 基準點，拖曳邊界
+        if (!transform_center_point) {
+            transform_center_point = {
+                x: rect.x,
+                y: rect.y,
+            }
+            minX = (info.left_boundary ?? 0) - transform_center_point.x
+            minY = (info.top_boundary ?? 0) - transform_center_point.y
+            maxX = (info.right_boundary ?? window.innerWidth) - w - transform_center_point.x
+            maxY = (info.bottom_boundary ?? window.innerHeight) - h - transform_center_point.y
+        }
+
+        // 以首次設定的 transform 為基準點
+        origin_location.clientX = e.clientX + transform_center_point.x
+        origin_location.clientY = e.clientY + transform_center_point.y
+
+        dragging = true
+
+        // 確保後續事件都回來
+        main_el.setPointerCapture?.(e.pointerId)
+
+        document.addEventListener('pointermove', onMove, {passive: true})
+        document.addEventListener('pointerup', onUp)
+        document.addEventListener('pointercancel', onUp)
+    }
+
+    const onUp = () => {
+        if (!dragging) return
+        dragging = false
+
         document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', stopMove)
-        main_el.removeEventListener('pointerleave', stopMove)
+        document.removeEventListener('pointerup', onUp)
+        document.removeEventListener('pointercancel', onUp)
+
+        if (rafId) {
+            cancelAnimationFrame(rafId)
+            rafId = null
+            pending = false
+        }
     }
-    document.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerup', stopMove)
-    main_el.addEventListener('pointerleave', stopMove)
+
+    trigger_el.addEventListener('pointerdown', onDown)
 }
